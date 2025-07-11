@@ -1,0 +1,9 @@
+# Ignore everything
+*
+
+# But allow these:
+!.gitignore
+!README.md
+!src/
+!data/
+!scripts/
