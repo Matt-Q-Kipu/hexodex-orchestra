@@ -1,5 +1,5 @@
 # hexodex-orchestra
-Hexodex Orchestra is a proof-of-concept project. It transforms team structures into a living musical ensemble, combining JSON-driven logic, visual layouts, and tooling integrations to support coordination, composition, and collaboration.
+Hexodex Orchestra is a proof-of-concept project. It transforms team structures into a living musical ensemble, combining JSON-driven logic, visual layouts, and integration tools to support coordination, composition, and collaboration.
 
 
 Ideas: The Hexodex project reimagines a development team as an orchestra, with each pod and product group representing a distinct instrument section. The musical score can be performed as a full ensemble or by individual sections. Musicians — often percussionists — may switch between instruments or even move across sections between pieces. A dynamic “live seating chart” helps maintain structure during the performance and ensures the best possible outcome.
