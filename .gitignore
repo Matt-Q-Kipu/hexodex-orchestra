@@ -7,3 +7,6 @@
 !src/
 !data/
 !scripts/
+
+# Secret config
+.env
