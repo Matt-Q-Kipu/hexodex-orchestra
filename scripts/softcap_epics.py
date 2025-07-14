@@ -14,9 +14,9 @@ def spinner(message="Processing"):
     stop_spinner = False
 
     def spin():
-        for c in "|/-\\":
+        for c in "|/-\\":  # rotating characters
             while not stop_spinner:
-                for c in "|/-\\":
+                for c in "|/-\\":  # refresh loop
                     sys.stdout.write(f"\r{message} {c}")
                     sys.stdout.flush()
                     time.sleep(0.1)
@@ -29,7 +29,7 @@ def spinner(message="Processing"):
     finally:
         stop_spinner = True
         thread.join()
-        sys.stdout.write("\r" + " " * (len(message) + 2) + "\r")  # clear line
+        sys.stdout.write("\r" + " " * (len(message) + 10) + "\r")  # clear line
 
 
 # Load .env secrets
@@ -43,12 +43,12 @@ END_DATE_FIELD = "customfield_11827"
 POD_FIELD = "customfield_11913"
 
 @click.command()
-@click.argument('project_key')
-@click.option('--month', type=click.Choice(['this', 'last'], case_sensitive=False), default='this',
-              help='Which month to search (this or last)')
-
-def fetch_epics(project_key, month):
+@click.option('--month', default='this', help='Choose "this" or "last" for timeframe.')
+@click.option('--project', required=True, help='Jira project key (e.g., Kipu EMR)')
+@click.option('--pod', default=None, help='Filter results by team (e.g., Platform')
+def fetch_epics(project, month, pod):
     """Fetch Epics that changed into or out of 'In Progress' during the given month."""
+
     if not all([JIRA_BASE_URL, JIRA_EMAIL, JIRA_TOKEN]):
         click.echo("Missing environment variables. Check your .env file.")
         return
@@ -60,7 +60,7 @@ def fetch_epics(project_key, month):
     month_range_jql = date_range
 
     jql = (
-        f'project = "{project_key}" AND issuetype = Epic AND '
+        f'project = "{project}" AND issuetype = Epic AND '
         f'status WAS "In Progress" {date_range}'
     )
 
@@ -93,10 +93,12 @@ def fetch_epics(project_key, month):
         start_date = issue["fields"].get(START_DATE_FIELD, "N/A")
         end_date = issue["fields"].get(END_DATE_FIELD, "N/A")
         pod_field = issue["fields"].get(POD_FIELD)
-        pod = pod_field["value"] if pod_field and isinstance(pod_field, dict) else "N/A"
-        total_children, done_children = get_child_stats(key, auth, headers, month_range_jql)
+        team = pod_field["value"] if pod_field and isinstance(pod_field, dict) else "N/A"
 
-        with spinner(f"querying children of {key}"):
+        if pod and team != pod:
+            continue
+
+        with spinner(f"querying children of epic: {key}"):
             total_children, done_children = get_child_stats(key, auth, headers, month_range_jql)
 
         if done_children and isinstance(done_children, int) and done_children > 0:
@@ -105,29 +107,31 @@ def fetch_epics(project_key, month):
                 "Summary": summary,
                 "Status": status,
                 "Start Date": start_date,
-                "Done Date" : end_date,
+                "End Date": end_date,
                 "Total Tickets": total_children,
                 "Total Tickets Complete": done_children,
-                "Team" : pod
+                "Team": team
             })
 
     df = pd.DataFrame(records)
     pd.set_option('display.max_rows', None)
-    df.rename(columns={col: f"[{col}]" for col in df.columns}, inplace=True)
-    click.echo(df.to_string(index=False))
 
+    if not df.empty:
+        df.sort_values(by=["Team","Key"], inplace=True)
+        df.rename(columns={col: f"[{col}]" for col in df.columns}, inplace=True)
+        click.echo(df.to_string(index=False))
+    else:
+        click.echo("No matching epics found.")
 
 def get_child_stats(epic_key, auth, headers, month_range_jql):
     """Returns (total_children, done_children)"""
     base_url = f"{JIRA_BASE_URL}/rest/api/3/search"
 
-    # Count total children
     total_params = {
         "jql": f'"Epic Link" = "{epic_key}"',
         "maxResults": 1
     }
 
-    # Count children moved out of 'In Progress' during timeframe
     done_jql = (
         f'"Epic Link" = "{epic_key}" AND status WAS "In Progress" '
         f'{month_range_jql} AND statusCategory != "In Progress"'
@@ -150,6 +154,6 @@ def get_child_stats(epic_key, auth, headers, month_range_jql):
     except requests.RequestException:
         return "N/A", "N/A"
 
-
 if __name__ == "__main__":
     fetch_epics()
+
