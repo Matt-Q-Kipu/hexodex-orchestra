@@ -123,8 +123,6 @@ def fetch_epics(month, project, pod):
     if not df.empty:
         df.sort_values(by=["Team", "Key"], inplace=True)
         df.rename(columns={col: f"[{col}]" for col in df.columns}, inplace=True)
-
-
         df_lines = df.to_string(index=False).splitlines()
         header = df_lines[0]
         rows = df_lines[1:]
@@ -136,9 +134,6 @@ def fetch_epics(month, project, pod):
         for line in rows:
             click.echo(line)
         click.echo(click.style(separator, fg="cyan", bold=True))
-
-
-
 
         # Print summary stats
         start_label = "startOfMonth()" if month.lower() == "this" else "startOfMonth(-1)"
