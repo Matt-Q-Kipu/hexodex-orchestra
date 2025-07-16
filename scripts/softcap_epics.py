@@ -80,7 +80,7 @@ def fetch_epics(project, month, pod, show_all):
     auth = HTTPBasicAuth(JIRA_EMAIL, JIRA_TOKEN)
     params = {
         "jql": jql,
-        "maxResults": 100,
+        "maxResults": 200,
         "fields": f"summary,status,{START_DATE_FIELD},{END_DATE_FIELD},{POD_FIELD},{BC_FIELD}"
     }
 
@@ -160,7 +160,7 @@ def fetch_epics(project, month, pod, show_all):
 
         start_label = "startOfMonth()" if month.lower() == "this" else "startOfMonth(-1)"
         end_label = "" if month.lower() == "this" else "to startOfMonth()"
-        click.echo(click.style("\n------- Summary -------", bold=True, fg="cyan"))
+        click.echo(click.style("\n---------- Summary ----------", bold=True, fg="cyan"))
         click.echo(f"Timeframe: " + click.style(f"{start_label} {end_label}".strip(), fg="yellow"))
         click.echo(f"Total Epics: " + click.style(f"{len(df)}", bold=True, fg="green"))
         click.echo(f"Total Completed Child Tickets: " + click.style(f"{df['[TD]'].sum()}", bold=True, fg="green"))
