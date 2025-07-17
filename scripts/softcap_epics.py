@@ -43,14 +43,11 @@ POD_FIELD = "customfield_11913"
 BC_FIELD = "customfield_12110"
 DEFAULT_PROJECTS = [p.strip() for p in os.getenv("DEFAULT_JIRA_PROJECTS", "").split(",") if p.strip()]
 
-# CLICK OPTIONS
 @click.command()
 @click.option('--month', default='this', help='Choose "this" or "last" for timeframe.')
-@click.option('--project', default=None, help='Jira project key [ANA, AO, CRM, ECAL, EMR, INN, KCI, KCOM, KPUI, PF]')
-@click.option('--pod', default=None, help='Filter results by team [CRM, OTP, Core, Labs, Meds, KipuRCM, Platform (PF), OneKipu (KPUI), Analytics (ANA), Innovation (INN), Scheduler (ECAL), Compliance (KCOM), Integrated Billing, Integrations (KCI), N/A]')
+@click.option('--project', default=None, help='Jira project key')
+@click.option('--pod', default=None, help='Filter by team')
 @click.option('--show_all', '-a', is_flag=True, help='Include epics even if no child tickets were completed.')
-
-
 def fetch_epics(project, month, pod, show_all):
     start_time = time.time()
     if not all([JIRA_BASE_URL, JIRA_EMAIL, JIRA_TOKEN]):
@@ -80,7 +77,7 @@ def fetch_epics(project, month, pod, show_all):
     auth = HTTPBasicAuth(JIRA_EMAIL, JIRA_TOKEN)
     params = {
         "jql": jql,
-        "maxResults": 200,
+        "maxResults": 100,
         "fields": f"summary,status,{START_DATE_FIELD},{END_DATE_FIELD},{POD_FIELD},{BC_FIELD}"
     }
 
@@ -89,7 +86,7 @@ def fetch_epics(project, month, pod, show_all):
     while True:
         params["startAt"] = start_at
         try:
-            response = requests.get(url, headers=headers, auth=auth, params=params)
+            response = requests.get(url, headers=headers, auth=auth, params=params, timeout=30)
             if response.status_code == 400:
                 click.echo("Jira returns 400 - possibly not a valid project key.")
                 return
@@ -100,8 +97,6 @@ def fetch_epics(project, month, pod, show_all):
 
         data = response.json()
         issues = data.get("issues", [])
-        if not issues:
-            break
         all_issues.extend(issues)
         if len(issues) < params["maxResults"]:
             break
@@ -117,8 +112,8 @@ def fetch_epics(project, month, pod, show_all):
         fields = issue["fields"]
         pod_field = fields.get(POD_FIELD)
         bc_field = fields.get(BC_FIELD)
-        team = pod_field["value"] if pod_field and isinstance(pod_field, dict) and "value" in pod_field else "N/A"
-        business_category = bc_field["value"] if bc_field and isinstance(bc_field, dict) and "value" in bc_field else "N/A"
+        team = pod_field.get("value") if isinstance(pod_field, dict) else "N/A"
+        business_category = bc_field.get("value") if isinstance(bc_field, dict) else "N/A"
 
         if pod and team != pod:
             continue
@@ -166,18 +161,15 @@ def fetch_epics(project, month, pod, show_all):
         click.echo(f"Total Completed Child Tickets: " + click.style(f"{df['[TD]'].sum()}", bold=True, fg="green"))
         elapsed_time = time.time() - start_time
         click.echo(f"Runtime: " + click.style(f"{elapsed_time:.2f} seconds", fg="magenta"))
-
     else:
         click.echo(click.style("No matching epics with completed children.\n", bold=True, fg="red"))
 
 def get_child_stats(epic_key, auth, headers, month_range_jql):
     base_url = f"{JIRA_BASE_URL}/rest/api/3/search"
-
     total_params = {
         "jql": f'"Epic Link" = "{epic_key}"',
         "maxResults": 1
     }
-
     done_jql = (
         f'"Epic Link" = "{epic_key}" AND status WAS "In Progress" '
         f'{month_range_jql} AND statusCategory != "In Progress"'
@@ -186,7 +178,6 @@ def get_child_stats(epic_key, auth, headers, month_range_jql):
         "jql": done_jql,
         "maxResults": 1
     }
-
     try:
         total_resp = requests.get(base_url, headers=headers, auth=auth, params=total_params)
         total_resp.raise_for_status()
