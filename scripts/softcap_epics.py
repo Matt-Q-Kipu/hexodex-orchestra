@@ -43,11 +43,14 @@ POD_FIELD = "customfield_11913"
 BC_FIELD = "customfield_12110"
 DEFAULT_PROJECTS = [p.strip() for p in os.getenv("DEFAULT_JIRA_PROJECTS", "").split(",") if p.strip()]
 
+# CLICK OPTIONS
 @click.command()
 @click.option('--month', default='this', help='Choose "this" or "last" for timeframe.')
-@click.option('--project', default=None, help='Jira project key')
-@click.option('--pod', default=None, help='Filter by team')
+@click.option('--project', default=None, help='Jira project key [ANA, AO, CRM, ECAL, EMR, INN, KCI, KCOM, KPUI, PF]')
+@click.option('--pod', default=None, help='Filter results by team [CRM, OTP, Core, Labs, Meds, KipuRCM, Platform (PF), OneKipu (KPUI), Analytics (ANA), Innovation (INN), Scheduler (ECAL), Compliance (KCOM), Integrated Billing, Integrations (KCI), N/A]')
 @click.option('--show_all', '-a', is_flag=True, help='Include epics even if no child tickets were completed.')
+
+
 def fetch_epics(project, month, pod, show_all):
     start_time = time.time()
     if not all([JIRA_BASE_URL, JIRA_EMAIL, JIRA_TOKEN]):
