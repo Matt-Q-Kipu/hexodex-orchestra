@@ -3,12 +3,9 @@ from slack_sdk.errors import SlackApiError
 from dotenv import load_dotenv
 import os
 
-# MQ Test branch 1.0.0.1.mq
-
 # Load variables from .env file
 load_dotenv()
-
-SLACK_BOT_TOKEN = os.getenv("SLACK_BOT_TOKEN")
+SLACK_BOT_TOKEN = os.getenv("BAGEL_CZAR")
 CHANNEL = os.getenv("CHANNEL_ID")
 
 client = WebClient(token=SLACK_BOT_TOKEN)
@@ -17,7 +14,7 @@ def post_message():
     try:
         response = client.chat_postMessage(
             channel=CHANNEL,
-            text=":sparkles: *Hexodex alert!* This is a test message from your local script.",
+            text=":sparkles: This is a test message from your local script, happy birthday!! :birthday-cake:",
             blocks=[
                 {
                     "type": "section",
