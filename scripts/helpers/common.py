@@ -15,6 +15,10 @@ CLOSED_STATUSES = {s.casefold() for s in {
     "Done"
 }}
 
+def escape_jql_value(value: str) -> str:
+    """Escape a value for safe interpolation into JQL queries."""
+    return value.replace('"', '\\"')
+
 def jira_search(jql, fields=None, expand=None, max_results=100, auth=None, base_url=None, headers=None):
     if not base_url or not auth:
         raise ValueError("jira_search requires base_url and auth")

@@ -209,7 +209,7 @@ def main(epic_key, progress, channel):
         c.slack_post_message(SLACK_TOKEN, target_channel, f"⚠️ `{epic_key}` is a {issue_type}. Burnup chart can only run for Epics.")
         return
 
-    jql = f'"Epic Link" = "{epic_key}" ORDER BY created ASC'
+    jql = f'"Epic Link" = "{c.escape_jql_value(epic_key)}" ORDER BY created ASC'
     issues = c.jira_search(
         jql,
         fields=["summary", "status", "created", "resolutiondate"],
