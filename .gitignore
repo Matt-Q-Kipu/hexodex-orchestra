@@ -16,5 +16,8 @@ venv/
 # Claude Code local settings
 .claude/settings.local.json
 
+# Generated output
+img/
+
 # Caches
 .changelog_cache/

@@ -42,8 +42,9 @@ jobs:
           JIRA_TOKEN: ${{ secrets.JIRA_TOKEN }}
           RD_PUBLIC: ${{ vars.RD_PUBLIC }}
           RD_TEST: ${{ vars.RD_TEST }}
+          ISSUE_KEY: ${{ github.event.inputs.issueKey }}
+          CHANNEL: ${{ github.event.inputs.channel }}
         run: |
-          python scripts/burnup_slack.py \
-            "${{ github.event.inputs.issueKey }}" \
+          python scripts/burnup_slack.py "$ISSUE_KEY" \
             --progress \
-            --channel "${{ github.event.inputs.channel }}"
+            --channel "$CHANNEL"
