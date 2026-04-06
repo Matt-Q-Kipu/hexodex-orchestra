@@ -206,7 +206,7 @@ HTTP request loops or API calls that lack 429 retry/backoff logic, risking casca
 import time, random
 
 def request_with_backoff(url, max_retries=5):
-    for attempt in range(max_retries):
+    for attempt in range(max_retries + 1):
         resp = requests.get(url)
         if resp.status_code == 429 or resp.status_code >= 500:
             wait = (2 ** attempt) + random.uniform(0, 1)
