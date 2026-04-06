@@ -1,0 +1,20 @@
+# Environment & secrets
+.env
+
+# OS junk
+.DS_Store
+
+# Python
+__pycache__/
+*.pyc
+venv/
+
+# Buddy state (local per-user)
+.claude/skills/buddy/.buddy_state.json
+.claude/skills/buddy/.buddy_display.txt
+
+# Claude Code local settings
+.claude/settings.local.json
+
+# Caches
+.changelog_cache/

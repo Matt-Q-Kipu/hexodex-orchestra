@@ -1,0 +1,49 @@
+name: Burnup Plot
+
+on:
+  workflow_dispatch:
+    inputs:
+      issueKey:
+        description: "Jira Epic key (e.g. EMR-1234)"
+        required: true
+        type: string
+      channel:
+        description: "Slack channel ID (e.g. C12345678)"
+        required: true
+        type: string
+
+concurrency:
+  group: burnup-${{ github.event.inputs.issueKey }}
+  cancel-in-progress: false
+
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
+jobs:
+  burnup:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: pip install python-dotenv requests matplotlib pandas click
+
+      - name: Run burnup_slack.py
+        env:
+          BAGEL_CZAR: ${{ secrets.BAGEL_CZAR }}
+          JIRA_BASE_URL: ${{ vars.JIRA_BASE_URL }}
+          JIRA_EMAIL: ${{ vars.JIRA_EMAIL }}
+          JIRA_TOKEN: ${{ secrets.JIRA_TOKEN }}
+          RD_PUBLIC: ${{ vars.RD_PUBLIC }}
+          RD_TEST: ${{ vars.RD_TEST }}
+        run: |
+          python scripts/burnup_slack.py \
+            "${{ github.event.inputs.issueKey }}" \
+            --progress \
+            --channel "${{ github.event.inputs.channel }}"
