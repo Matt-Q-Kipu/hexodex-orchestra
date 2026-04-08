@@ -16,6 +16,9 @@ concurrency:
   group: burnup-${{ github.event.inputs.issueKey }}
   cancel-in-progress: false
 
+permissions:
+  contents: read
+
 env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
 
