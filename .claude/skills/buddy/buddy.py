@@ -996,6 +996,7 @@ def react(context=""):
     # Reaction gate — buddy may stay silent
     chance = _react_chance(stats, sentiment)
     if random.random() > chance:
+        save_state(state)
         return
 
     # Determine base pool from mood + sentiment
