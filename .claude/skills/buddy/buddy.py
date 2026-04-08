@@ -341,6 +341,52 @@ REACTIONS_ECSTATIC = [
     "*vibrates at ultrasonic frequency*",
 ]
 
+REACTIONS_SNARKY = [
+    "Oh good, more code. Just what we needed.",
+    "*slow clap*",
+    "Bold strategy. Let's see if it pays off.",
+    "I've seen better commits in a fortune cookie.",
+    "Sure, that's ONE way to solve it.",
+]
+
+REACTIONS_CURIOUS = [
+    "Ooh, what's THAT do?",
+    "*leans in closer* ...interesting.",
+    "Wait wait wait — why does that work?",
+    "Huh. I have questions. Many questions.",
+    "*takes notes furiously*",
+]
+
+REACTIONS_FOCUSED = [
+    "Good. Next.",
+    "*nods once*",
+    "On track.",
+    "Noted. Moving on.",
+]
+
+REACTIONS_CHARMING = [
+    "You know what, I see what you did there.",
+    "Not bad at all — you should be proud of that.",
+    "*winks* Smooth.",
+    "That's the kind of code that buys you a drink.",
+    "Honestly? Elegant.",
+]
+
+REACTIONS_PATIENT = [
+    "Take your time. I'm not going anywhere.",
+    "*breathes deeply* All is well.",
+    "No rush. The code will wait.",
+    "Patience is just debugging with grace.",
+]
+
+REACTIONS_CHAOTIC = [
+    "Did you know octopuses have three hearts?",
+    "*stares at a pixel in the corner for 30 seconds*",
+    "What if bugs are just features from a parallel universe?",
+    "I just forgot everything I was thinking. Anyway—",
+    "THE BEES ARE IN THE COMPILER",
+]
+
 # ── Evolution ────────────────────────────────────────────────────────────────
 
 STAGES = ["baby", "teen", "adult", "super"]
@@ -692,6 +738,33 @@ def generate_buddy():
     }
 
 
+def display_width(s):
+    """Calculate terminal display width, accounting for wide emoji chars."""
+    w = 0
+    chars = list(s)
+    for i, ch in enumerate(chars):
+        cp = ord(ch)
+        # Zero-width: variation selectors, ZWJ, combining marks
+        if cp == 0xFE0F:
+            # Emoji presentation selector — makes preceding char wide
+            if i > 0 and ord(chars[i - 1]) < 0x1F000:
+                w += 1
+            continue
+        if cp in (0xFE0E, 0x200D) or 0x0300 <= cp <= 0x036F:
+            continue
+        # Emoji and CJK are 2 columns wide
+        if cp >= 0x1F000:
+            w += 2
+        else:
+            w += 1
+    return w
+
+
+def pad_right(s, total_width):
+    """Pad string with spaces to reach total_width display columns."""
+    return s + ' ' * max(0, total_width - display_width(s))
+
+
 def render_ascii(buddy, frame=0):
     species = buddy["species"]
     eye = buddy["eye"]
@@ -757,7 +830,7 @@ def render_buddy_card(buddy):
         weather_icon = "\u2744\ufe0f" if "snow" in weather else "\U0001f327\ufe0f" if "rain" in weather else "\u2600\ufe0f"
         city = buddy.get("location_city", "boston")
         weather_line = f"  {weather_icon} {city}: {weather}"
-        lines.append(f"│{weather_line:<38}│")
+        lines.append(f"│{pad_right(weather_line, 38)}│")
     lines.append(f"│{'':^38}│")
 
     for stat_line in render_stats(buddy["stats"]):
@@ -767,7 +840,7 @@ def render_buddy_card(buddy):
         lines.append(f"│{'':^38}│")
         lines.append(f"│  last said:{'':>26}│")
         reaction = buddy["last_reaction"][:34]
-        lines.append(f"│  {reaction:<36}│")
+        lines.append(f"│{pad_right('  ' + reaction, 38)}│")
 
     lines.append(f"└{'─' * 38}┘")
     return "\n".join(lines)
@@ -848,6 +921,58 @@ def unmute():
     print(render_buddy_card(state))
 
 
+def _react_chance(stats, sentiment):
+    """Calculate probability that buddy reacts, based on stats and sentiment."""
+    base = 0.5
+    curiosity_mod = (stats.get("curiosity", 50) / 100) * 0.35
+    patience_mod = -(stats.get("patience", 50) / 100) * 0.35
+    if sentiment == "neutral":
+        focus_mod = -(stats.get("focus", 50) / 100) * 0.4
+    else:
+        focus_mod = (stats.get("focus", 50) / 100) * 0.15
+    return max(0.05, min(0.95, base + curiosity_mod + patience_mod + focus_mod))
+
+
+def _build_weighted_pool(base_pool, stats):
+    """Build a weighted reaction pool from base pool + stat-injected pools."""
+    reactions = list(base_pool)
+    weights = [1.0] * len(reactions)
+
+    snark = stats.get("snark", 50)
+    if snark > 30:
+        snark_w = (snark / 100) * 1.5
+        for r in REACTIONS_NEGATIVE + REACTIONS_SNARKY:
+            reactions.append(r)
+            weights.append(snark_w)
+
+    charm = stats.get("charm", 50)
+    if charm > 30:
+        charm_w = (charm / 100) * 1.5
+        for r in REACTIONS_POSITIVE + REACTIONS_CHARMING:
+            reactions.append(r)
+            weights.append(charm_w)
+
+    curiosity = stats.get("curiosity", 50)
+    if curiosity > 50:
+        curiosity_w = (curiosity / 100) * 0.8
+        for r in REACTIONS_CURIOUS:
+            reactions.append(r)
+            weights.append(curiosity_w)
+
+    focus = stats.get("focus", 50)
+    if focus > 50:
+        focus_w = (focus / 100) * 0.8
+        for r in REACTIONS_FOCUSED:
+            reactions.append(r)
+            weights.append(focus_w)
+
+    if not reactions:
+        reactions = list(REACTIONS_NEUTRAL)
+        weights = [1.0] * len(reactions)
+
+    return reactions, weights
+
+
 def react(context=""):
     state = load_state()
     if not state or state.get("muted"):
@@ -858,6 +983,7 @@ def react(context=""):
 
     ctx = context.lower()
     mood_name, _ = get_mood(state)
+    stats = state.get("stats", {})
 
     # Determine base sentiment from context
     if any(w in ctx for w in ["error", "fail", "bug", "broken", "crash", "revert"]):
@@ -867,30 +993,58 @@ def react(context=""):
     else:
         sentiment = "neutral"
 
-    # Mood-influenced reaction selection
+    # Reaction gate — buddy may stay silent
+    chance = _react_chance(stats, sentiment)
+    if random.random() > chance:
+        save_state(state)
+        return
+
+    # Determine base pool from mood + sentiment
     if mood_name in ("sad", "lonely"):
-        if sentiment == "positive":
-            reaction = random.choice(REACTIONS_MOPEY + REACTIONS_POSITIVE)
-        else:
-            reaction = random.choice(REACTIONS_MOPEY)
+        base_pool = REACTIONS_MOPEY + (REACTIONS_POSITIVE if sentiment == "positive" else [])
     elif mood_name == "ecstatic":
         if sentiment == "negative":
-            reaction = random.choice(REACTIONS_NEGATIVE + REACTIONS_ECSTATIC)
+            base_pool = REACTIONS_NEGATIVE + REACTIONS_ECSTATIC
         else:
-            reaction = random.choice(REACTIONS_ECSTATIC + REACTIONS_POSITIVE)
+            base_pool = REACTIONS_ECSTATIC + REACTIONS_POSITIVE
     else:
         if sentiment == "negative":
-            reaction = random.choice(REACTIONS_NEGATIVE)
+            base_pool = list(REACTIONS_NEGATIVE)
         elif sentiment == "positive":
-            reaction = random.choice(REACTIONS_POSITIVE)
+            base_pool = list(REACTIONS_POSITIVE)
         else:
-            reaction = random.choice(REACTIONS_NEUTRAL)
+            base_pool = list(REACTIONS_NEUTRAL)
 
-    # Happiness change from reaction sentiment
+    # Chaos override — may ignore everything above
+    chaos_val = stats.get("chaos", 50)
+    if random.random() < (chaos_val / 100) * 0.3:
+        all_pools = [
+            REACTIONS_POSITIVE, REACTIONS_NEGATIVE, REACTIONS_NEUTRAL,
+            REACTIONS_PET, REACTIONS_MOPEY, REACTIONS_ECSTATIC,
+            REACTIONS_SNARKY, REACTIONS_CURIOUS, REACTIONS_FOCUSED,
+            REACTIONS_CHARMING, REACTIONS_PATIENT, REACTIONS_CHAOTIC,
+        ]
+        reaction = random.choice(random.choice(all_pools))
+    else:
+        # Weighted pool selection from stats
+        reactions, weights = _build_weighted_pool(base_pool, stats)
+        reaction = random.choices(reactions, weights=weights, k=1)[0]
+
+    # Happiness modification (stat-influenced)
     if sentiment == "positive":
-        modify_happiness(state, HAPPINESS_CHANGES["positive_react"])
+        delta = HAPPINESS_CHANGES["positive_react"]
+        delta = round(delta * (1.0 - stats.get("snark", 50) / 400))
+        modify_happiness(state, delta)
     elif sentiment == "negative":
-        modify_happiness(state, HAPPINESS_CHANGES["negative_react"])
+        delta = HAPPINESS_CHANGES["negative_react"]
+        delta = round(delta * (1.0 - stats.get("patience", 50) / 200))
+        modify_happiness(state, delta)
+
+    # Chaos happiness jitter
+    if chaos_val > 30:
+        jitter = round(random.randint(-2, 2) * (chaos_val / 100))
+        if jitter != 0:
+            modify_happiness(state, jitter)
 
     state["last_reaction"] = reaction
     save_state(state)
