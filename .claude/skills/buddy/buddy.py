@@ -839,8 +839,18 @@ def render_buddy_card(buddy):
     if buddy.get("last_reaction"):
         lines.append(f"│{'':^38}│")
         lines.append(f"│  last said:{'':>26}│")
-        reaction = buddy["last_reaction"][:34]
-        lines.append(f"│{pad_right('  ' + reaction, 38)}│")
+        reaction = buddy["last_reaction"]
+        max_w = 35
+        if len(reaction) <= max_w:
+            lines.append(f"│{pad_right('  ' + reaction, 38)}│")
+        else:
+            # wrap on last space within max_w
+            wrap = reaction[:max_w].rfind(' ')
+            if wrap == -1:
+                wrap = max_w
+            lines.append(f"│{pad_right('  ' + reaction[:wrap], 38)}│")
+            line2 = reaction[wrap:].lstrip()[:max_w]
+            lines.append(f"│{pad_right('  ' + line2, 38)}│")
 
     lines.append(f"└{'─' * 38}┘")
     return "\n".join(lines)
