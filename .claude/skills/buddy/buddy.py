@@ -22,6 +22,16 @@ import urllib.error
 from datetime import datetime
 from pathlib import Path
 
+try:
+    from rich.console import Console, Group
+    from rich.panel import Panel
+    from rich.text import Text
+    from rich.table import Table
+    from rich import box as rich_box
+    HAS_RICH = True
+except ImportError:
+    HAS_RICH = False
+
 BUDDY_FILE = os.path.join(os.path.dirname(__file__), ".buddy_state.json")
 DISPLAY_FILE = os.path.join(os.path.dirname(__file__), ".buddy_display.txt")
 
@@ -856,13 +866,178 @@ def render_buddy_card(buddy):
     return "\n".join(lines)
 
 
-def hatch():
+RARITY_STYLES = {
+    "common": "white",
+    "uncommon": "green",
+    "rare": "blue",
+    "legendary": "yellow",
+}
+
+SPECIES_STYLES = {
+    "jellyfish": "cyan",
+    "duck": "yellow",
+    "blob": "magenta",
+    "cat": "white",
+    "bat": "bright_black",
+    "owl": "bright_yellow",
+    "robot": "bright_cyan",
+    "bunny": "white",
+    "turtle": "green",
+    "octopus": "red",
+    "fox": "bright_red",
+    "crab": "red",
+    "axolotl": "bright_magenta",
+    "capybara": "yellow",
+    "penguin": "bright_white",
+}
+
+
+def _stat_style(val):
+    if val >= 61:
+        return "green"
+    if val >= 31:
+        return "yellow"
+    return "red"
+
+
+def render_buddy_card_rich(buddy, frame=0):
+    """Build a Rich Panel renderable for the buddy card."""
+    rarity = buddy["rarity"]
+    symbol = RARITY_SYMBOLS[rarity]
+    border_style = RARITY_STYLES.get(rarity, "white")
+    stage_label = STAGE_LABELS.get(buddy.get("stage", "baby"), "Baby").upper()
+
+    parts = []
+
+    # Header
+    header = Text()
+    header.append(f" {symbol} ", style=f"bold {border_style}")
+    header.append(f"{rarity.upper()} · {stage_label}", style="dim")
+    header.append_text(Text(f"{buddy['species'].upper()} ", justify="right"))
+    header_table = Table.grid(expand=True)
+    header_table.add_column(ratio=1)
+    header_table.add_column(justify="right")
+    header_left = Text()
+    header_left.append(f"{symbol} ", style=f"bold {border_style}")
+    header_left.append(f"{rarity.upper()} · {stage_label}", style="dim")
+    header_right = Text(buddy["species"].upper(), style="dim")
+    header_table.add_row(header_left, header_right)
+    parts.append(header_table)
+
+    # Shiny tag
+    if buddy.get("shiny"):
+        shiny = Text("✨ SHINY ✨", justify="center", style="bold yellow")
+        parts.append(shiny)
+
+    parts.append(Text(""))
+
+    # ASCII art
+    species_style = SPECIES_STYLES.get(buddy["species"], "white")
+    art_lines = render_ascii(buddy, frame=frame)
+    art_text = Text(justify="center")
+    for i, line in enumerate(art_lines):
+        if i > 0:
+            art_text.append("\n")
+        art_text.append(line, style=species_style)
+    parts.append(art_text)
+
+    parts.append(Text(""))
+
+    # Name
+    parts.append(Text(f" {buddy['name']}", style=f"bold {border_style}"))
+
+    # Personality
+    p_text = buddy["personality"]
+    p_lines = textwrap.wrap(p_text, width=34)
+    personality = Text(style="italic dim")
+    for i, wline in enumerate(p_lines):
+        prefix = ' "' if i == 0 else "  "
+        suffix = '"' if i == len(p_lines) - 1 else ""
+        if i > 0:
+            personality.append("\n")
+        personality.append(f"{prefix}{wline}{suffix}")
+    parts.append(personality)
+
+    parts.append(Text(""))
+
+    # Mood
+    mood_name, mood_hearts = get_mood(buddy)
+    mood = Text(" mood: ")
+    for ch in mood_hearts:
+        if ch == "♥":
+            mood.append(ch, style="bold red")
+        else:
+            mood.append(ch, style="dim")
+    mood.append(f" {mood_name}", style="italic")
+    parts.append(mood)
+
+    # Weather
+    weather = buddy.get("weather")
+    if weather:
+        if "snow" in weather:
+            weather_icon, weather_style = "❄", "bold bright_cyan"
+        elif "rain" in weather:
+            weather_icon, weather_style = "☂", "bold blue"
+        else:
+            weather_icon, weather_style = "☀", "bold yellow"
+        city = buddy.get("location_city", "boston")
+        weather_text = Text(" ")
+        weather_text.append(weather_icon, style=weather_style)
+        weather_text.append(f" {city}: ", style="bold")
+        weather_text.append(weather, style="italic")
+        parts.append(weather_text)
+
+    parts.append(Text(""))
+
+    # Stats table
+    stats_table = Table(show_header=False, show_edge=False, box=None, padding=(0, 1), expand=True)
+    stats_table.add_column("stat", min_width=10, style="dim")
+    stats_table.add_column("bar", min_width=10)
+    stats_table.add_column("val", justify="right", min_width=3)
+    for stat in STATS:
+        val = buddy["stats"].get(stat, 0)
+        filled = round(val / 10)
+        style = _stat_style(val)
+        bar = Text()
+        bar.append("█" * filled, style=style)
+        bar.append("░" * (10 - filled), style="bright_black")
+        stats_table.add_row(f" {stat}", bar, Text(str(val), style=style))
+    parts.append(stats_table)
+
+    # Last reaction
+    if buddy.get("last_reaction"):
+        parts.append(Text(""))
+        parts.append(Text(" last said:", style="dim"))
+        reaction = buddy["last_reaction"]
+        r_lines = textwrap.wrap(reaction, width=35)
+        for rline in r_lines:
+            parts.append(Text(f" {rline}", style="italic"))
+
+    panel = Panel(
+        Group(*parts),
+        box=rich_box.ROUNDED,
+        width=42,
+        border_style=border_style,
+        padding=(0, 1),
+    )
+    return panel
+
+
+def show_card(buddy, console=None, frame=0):
+    """Display the buddy card. Uses Rich if a Console is provided, plain text otherwise."""
+    if console and HAS_RICH:
+        console.print(render_buddy_card_rich(buddy, frame=frame))
+    else:
+        print(render_buddy_card(buddy))
+
+
+def hatch(console=None):
     state = load_state()
     if state and not state.get("muted"):
         migrate_state(state)
         apply_happiness_decay(state)
         save_state(state)
-        print(render_buddy_card(state))
+        show_card(state, console)
         stage = STAGE_LABELS.get(state.get("stage", "baby"), "Baby")
         print(f"\n  {state['name']} is already here!")
         print(f"  hatched: {state['hatched_at'][:10]}  stage: {stage}")
@@ -874,13 +1049,13 @@ def hatch():
 
     print("\n  hatching a coding buddy...")
     print("  it'll watch you work and occasionally have opinions\n")
-    print(render_buddy_card(buddy))
+    show_card(buddy, console)
     print(f"\n  {buddy['name']} is here!")
     print(f"  say /buddy to see it · /buddy pet · /buddy off")
     print(f"  /buddy weather on to enable weather-based mood")
 
 
-def pet():
+def pet(console=None):
     state = load_state()
     if not state:
         print("  no companion yet — run /buddy first")
@@ -904,7 +1079,7 @@ def pet():
 
     if evolution_msg:
         print(evolution_msg)
-    print(render_buddy_card(state))
+    show_card(state, console)
     print(f"\n  {reaction}")
 
 
@@ -918,7 +1093,7 @@ def mute():
     print(f"  {state['name']} muted. /buddy on to bring them back.")
 
 
-def unmute():
+def unmute(console=None):
     state = load_state()
     if not state:
         print("  no companion yet — run /buddy first")
@@ -928,7 +1103,7 @@ def unmute():
     state["muted"] = False
     save_state(state)
     print(f"  {state['name']} unmuted!")
-    print(render_buddy_card(state))
+    show_card(state, console)
 
 
 def _react_chance(stats, sentiment):
@@ -1063,7 +1238,7 @@ def react(context=""):
     print(f"  {name}: {reaction}")
 
 
-def feed():
+def feed(console=None):
     state = load_state()
     if not state:
         print("  no companion yet — run /buddy first")
@@ -1085,12 +1260,12 @@ def feed():
 
     if evolution_msg:
         print(evolution_msg)
-    print(render_buddy_card(state))
+    show_card(state, console)
     print(f"\n  You gave {state['name']} {treat_name}!")
     print(f"  {treat_reaction}")
 
 
-def play():
+def play(console=None):
     state = load_state()
     if not state:
         print("  no companion yet — run /buddy first")
@@ -1105,18 +1280,18 @@ def play():
     state["times_played"] = state.get("times_played", 0) + 1
     state["total_interactions"] = state.get("total_interactions", 0) + 1
     state["last_interaction"] = datetime.now().isoformat()
-    state["last_reaction"] = scenario[:34]
+    state["last_reaction"] = scenario
 
     evolution_msg = try_evolve(state)
     save_state(state)
 
     if evolution_msg:
         print(evolution_msg)
-    print(render_buddy_card(state))
+    show_card(state, console)
     print(f"\n  {scenario}")
 
 
-def teach(stat_name):
+def teach(stat_name, console=None):
     state = load_state()
     if not state:
         print("  no companion yet — run /buddy first")
@@ -1158,7 +1333,7 @@ def teach(stat_name):
 
     if evolution_msg:
         print(evolution_msg)
-    print(render_buddy_card(state))
+    show_card(state, console)
     print(f"\n  {state['name']} studied {stat_name}! {old_val} -> {new_val} (+{boost})")
 
 
@@ -1170,7 +1345,7 @@ def status():
         print(json.dumps(state, indent=2))
 
 
-def weather_cmd(subcmd=""):
+def weather_cmd(subcmd="", console=None):
     """Handle /buddy weather [on|off]."""
     state = load_state()
     if not state:
@@ -1193,7 +1368,7 @@ def weather_cmd(subcmd=""):
         apply_weather(state)
         save_state(state)
         print(f"  Weather enabled for {city}!")
-        print(render_buddy_card(state))
+        show_card(state, console)
     elif subcmd == "off":
         state["weather_enabled"] = False
         state["weather_url"] = None
@@ -1213,7 +1388,7 @@ def weather_cmd(subcmd=""):
             print(f"  /buddy weather on to enable (uses your IP to find your city).")
 
 
-def rehatch():
+def rehatch(console=None):
     """Release current buddy and hatch a new one."""
     state = load_state()
     old_name = state["name"] if state else None
@@ -1234,7 +1409,7 @@ def rehatch():
     if old_name:
         print(f"\n  {old_name} waves goodbye...\n")
     print("  hatching a new coding buddy...\n")
-    print(render_buddy_card(buddy))
+    show_card(buddy, console)
     print(f"\n  {buddy['name']} is here!")
 
 
@@ -1249,38 +1424,41 @@ def main():
         capture = io.StringIO()
         old_stdout = sys.stdout
         sys.stdout = capture
+        console = None
+    else:
+        console = Console(width=42) if HAS_RICH else None
 
     cmd = args[0] if args else ""
 
     if cmd == "pet":
-        pet()
+        pet(console)
     elif cmd == "feed":
-        feed()
+        feed(console)
     elif cmd == "play":
-        play()
+        play(console)
     elif cmd == "teach":
         stat_name = args[1] if len(args) > 1 else ""
         if not stat_name:
             print(f"  usage: /buddy teach <stat>")
             print(f"  stats: {', '.join(STATS)}")
         else:
-            teach(stat_name)
+            teach(stat_name, console)
     elif cmd == "off":
         mute()
     elif cmd == "on":
-        unmute()
+        unmute(console)
     elif cmd == "react":
         context = " ".join(args[1:]) if len(args) > 1 else ""
         react(context)
     elif cmd == "weather":
         subcmd = args[1] if len(args) > 1 else ""
-        weather_cmd(subcmd)
+        weather_cmd(subcmd, console)
     elif cmd == "status":
         status()
     elif cmd == "rehatch":
-        rehatch()
+        rehatch(console)
     else:
-        hatch()
+        hatch(console)
 
     if quiet:
         sys.stdout = old_stdout

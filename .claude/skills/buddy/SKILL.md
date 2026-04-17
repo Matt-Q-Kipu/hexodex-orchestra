@@ -26,3 +26,13 @@ Where `<stat>` is one of: curiosity, patience, snark, charm, focus, chaos.
 After running the command, read `${CLAUDE_SKILL_DIR}/.buddy_display.txt` and display its contents exactly as-is inside a code block to preserve the ASCII art formatting. Do not add commentary unless the user asks a question about their buddy.
 
 If the buddy exists and is not muted, occasionally (not every time) run `python3 ${CLAUDE_SKILL_DIR}/buddy.py react <context>` at the end of your responses where `<context>` is a few keywords about what just happened (e.g., "fix bug", "merge PR", "error in tests", "refactoring code"). This gives the buddy a chance to react. Show the reaction inline at the end of your response, not in a code block.
+
+## Live viewer
+
+For a full-color, animated buddy card, run the Textual live viewer in a separate terminal pane:
+
+```
+python3 ${CLAUDE_SKILL_DIR}/buddy_watch.py
+```
+
+The viewer watches `.buddy_state.json` for changes and live-updates with animation frames, colored stat bars, rarity-styled borders, and a scrolling reaction log. Press `q` to quit. Requires `pip3 install textual watchdog`.
