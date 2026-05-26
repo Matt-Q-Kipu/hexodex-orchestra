@@ -266,10 +266,11 @@ def _stats_for_transcript(path):
                 if msg:
                     usage = msg.get("usage")
                     if isinstance(usage, dict):
-                        msg_id = msg.get("id", "")
-                        if msg_id in seen_msg_ids:
-                            continue
-                        seen_msg_ids.add(msg_id)
+                        msg_id = msg.get("id")
+                        if msg_id:
+                            if msg_id in seen_msg_ids:
+                                continue
+                            seen_msg_ids.add(msg_id)
                         ti = usage.get("input_tokens", 0)
                         to = usage.get("output_tokens", 0)
                         tcc = usage.get("cache_creation_input_tokens", 0)
