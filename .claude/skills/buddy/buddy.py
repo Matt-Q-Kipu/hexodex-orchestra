@@ -451,6 +451,37 @@ WEATHER_SHIFT_SCALE = 0.5  # Intra-day weather change modifier (fraction of delt
 WMO_SNOW_CODES = {71, 73, 75, 77, 85, 86}
 WMO_RAIN_CODES = {51, 53, 55, 56, 57, 61, 63, 65, 66, 67, 80, 81, 82, 95, 96, 99}
 
+WMO_WEATHER = {
+    0:  ("☀️",  "clear sky",            "bold yellow"),
+    1:  ("🌤️",  "mostly clear",         "bold yellow"),
+    2:  ("⛅",  "partly cloudy",        "white"),
+    3:  ("☁️",  "overcast",             "dim"),
+    45: ("🌫️",  "fog",                  "dim"),
+    48: ("🌫️",  "rime fog",             "dim bright_cyan"),
+    51: ("🌦️",  "light drizzle",        "blue"),
+    53: ("🌦️",  "drizzle",              "blue"),
+    55: ("🌧️",  "heavy drizzle",        "bold blue"),
+    56: ("🌧️",  "freezing drizzle",     "bold bright_cyan"),
+    57: ("🌧️",  "heavy freezing drizzle","bold bright_cyan"),
+    61: ("🌧️",  "light rain",           "blue"),
+    63: ("🌧️",  "rain",                 "bold blue"),
+    65: ("🌧️",  "heavy rain",           "bold blue"),
+    66: ("🌧️",  "freezing rain",        "bold bright_cyan"),
+    67: ("🌧️",  "heavy freezing rain",  "bold bright_cyan"),
+    71: ("🌨️",  "light snow",           "bold bright_white"),
+    73: ("🌨️",  "snow",                 "bold bright_white"),
+    75: ("❄️",  "heavy snow",           "bold bright_cyan"),
+    77: ("❄️",  "snow grains",          "bold bright_cyan"),
+    80: ("🌦️",  "light showers",        "blue"),
+    81: ("🌧️",  "showers",              "bold blue"),
+    82: ("⛈️",  "violent showers",      "bold red"),
+    85: ("🌨️",  "light snow showers",   "bold bright_white"),
+    86: ("🌨️",  "heavy snow showers",   "bold bright_cyan"),
+    95: ("⛈️",  "thunderstorm",         "bold red"),
+    96: ("⛈️",  "thunderstorm w/ hail", "bold red"),
+    99: ("⛈️",  "severe thunderstorm",  "bold red"),
+}
+
 def resolve_location():
     """Determine user's city and coordinates via IP geolocation.
 
@@ -483,7 +514,7 @@ def build_weather_url(lat, lon):
 
 
 def _fetch_open_meteo(weather_url):
-    """Fetch weather from Open-Meteo. Returns (mood_value, description)."""
+    """Fetch weather from Open-Meteo. Returns (mood_value, description, wmo_code)."""
     req = urllib.request.Request(weather_url)
     with urllib.request.urlopen(req, timeout=5) as resp:
         data = json.loads(resp.read())
@@ -492,28 +523,32 @@ def _fetch_open_meteo(weather_url):
     weather_code = (daily.get("weather_code") or [None])[0]
     precip = (daily.get("precipitation_probability_max") or [0])[0] or 0
 
+    _icon, label, _style = WMO_WEATHER.get(weather_code, ("☀️", "clear sky", "bold yellow"))
+    description = f"{label} ({precip}%)" if precip > 0 else label
+
     if weather_code in WMO_SNOW_CODES:
-        return WEATHER_SNOW_FLOOR, f"snow ({precip}%)"
+        return WEATHER_SNOW_FLOOR, description, weather_code
     elif weather_code in WMO_RAIN_CODES:
         mood = max(0, int(WEATHER_CLEAR_CAP - WEATHER_RAIN_PENALTY * precip))
-        return mood, f"rain ({precip}%)"
+        return mood, description, weather_code
     else:
-        return WEATHER_CLEAR_CAP, "clear"
+        return WEATHER_CLEAR_CAP, description, weather_code
 
 
 def get_weather_mood(weather_url):
-    """Fetch current weather and return (mood_value, description).
+    """Fetch current weather and return (mood_value, description, wmo_code).
 
     Uses Open-Meteo for all locations globally.
     Always fetches live — caching is handled by apply_weather.
     """
     mood_value = WEATHER_CLEAR_CAP
-    description = "clear"
+    description = "clear sky"
+    wmo_code = 0
     try:
-        mood_value, description = _fetch_open_meteo(weather_url)
+        mood_value, description, wmo_code = _fetch_open_meteo(weather_url)
     except Exception:
-        pass  # Network failure — default to clear
-    return mood_value, description
+        pass
+    return mood_value, description, wmo_code
 
 
 def apply_weather(state):
@@ -531,19 +566,17 @@ def apply_weather(state):
     if not weather_url:
         return
 
-    mood_value, description = get_weather_mood(weather_url)
+    mood_value, description, wmo_code = get_weather_mood(weather_url)
 
     today = datetime.now().strftime("%Y-%m-%d")
     prev_description = state.get("weather")
 
     if state.get("last_weather_date") != today:
-        # First fetch of the day — set starting mood
         mood_value += random.randint(-5, 5)
         mood_value = max(0, min(100, mood_value))
         state["happiness"] = mood_value
         state["last_weather_mood"] = mood_value
     elif description != prev_description:
-        # Weather changed during the day — nudge happiness
         prev_mood = state.get("last_weather_mood", WEATHER_CLEAR_CAP)
         delta = int((mood_value - prev_mood) * WEATHER_SHIFT_SCALE)
         if delta != 0:
@@ -551,6 +584,7 @@ def apply_weather(state):
         state["last_weather_mood"] = mood_value
 
     state["weather"] = description
+    state["weather_code"] = wmo_code
     state["last_weather_date"] = today
 
 
@@ -607,6 +641,7 @@ def migrate_state(state):
         "weather_enabled": False,
         "weather_url": None,
         "location_city": None,
+        "hide_card": False,
     }
     changed = False
     for key, default in defaults.items():
@@ -745,6 +780,7 @@ def generate_buddy():
         "weather_enabled": False,
         "weather_url": None,
         "location_city": None,
+        "hide_card": False,
     }
 
 
@@ -823,7 +859,7 @@ def render_buddy_card(buddy):
     lines.append(f"│{'':^38}│")
     lines.append(f"│  {buddy['name']:<36}│")
     p_text = buddy["personality"]
-    p_lines = textwrap.wrap(p_text, width=34)
+    p_lines = textwrap.wrap(p_text, width=30)
     for i, wline in enumerate(p_lines):
         is_first = i == 0
         is_last = i == len(p_lines) - 1
@@ -837,7 +873,8 @@ def render_buddy_card(buddy):
     lines.append(f"│{mood_line:<38}│")
     weather = buddy.get("weather")
     if weather:
-        weather_icon = "\u2744\ufe0f" if "snow" in weather else "\U0001f327\ufe0f" if "rain" in weather else "\u2600\ufe0f"
+        wmo = buddy.get("weather_code", 0)
+        weather_icon = WMO_WEATHER.get(wmo, ("☀️", "", ""))[0]
         city = buddy.get("location_city", "boston")
         weather_line = f"  {weather_icon} {city}: {weather}"
         lines.append(f"│{pad_right(weather_line, 38)}│")
@@ -850,17 +887,9 @@ def render_buddy_card(buddy):
         lines.append(f"│{'':^38}│")
         lines.append(f"│  last said:{'':>26}│")
         reaction = buddy["last_reaction"]
-        max_w = 35
-        if len(reaction) <= max_w:
-            lines.append(f"│{pad_right('  ' + reaction, 38)}│")
-        else:
-            # wrap on last space within max_w
-            wrap = reaction[:max_w].rfind(' ')
-            if wrap == -1:
-                wrap = max_w
-            lines.append(f"│{pad_right('  ' + reaction[:wrap], 38)}│")
-            line2 = reaction[wrap:].lstrip()[:max_w]
-            lines.append(f"│{pad_right('  ' + line2, 38)}│")
+        r_lines = textwrap.wrap(reaction, width=30)
+        for rline in r_lines:
+            lines.append(f"│{pad_right('  ' + rline, 38)}│")
 
     lines.append(f"└{'─' * 38}┘")
     return "\n".join(lines)
@@ -892,15 +921,17 @@ SPECIES_STYLES = {
 }
 
 
-def _stat_style(val):
-    if val >= 61:
-        return "green"
-    if val >= 31:
-        return "yellow"
-    return "red"
+STAT_COLORS = {
+    "curiosity": "#5A8FA3",  # light blue
+    "patience":  "#A78410",  # amber
+    "snark":     "#674A83",  # plush purple
+    "charm":     "#5A8FA3",  # sky blue
+    "focus":     "#315E28",  # forest lime
+    "chaos":     "#A75413",  # pumpkin orange
+}
 
 
-def render_buddy_card_rich(buddy, frame=0):
+def render_buddy_card_rich(buddy, frame=0, art_lines=None):
     """Build a Rich Panel renderable for the buddy card."""
     rarity = buddy["rarity"]
     symbol = RARITY_SYMBOLS[rarity]
@@ -929,16 +960,16 @@ def render_buddy_card_rich(buddy, frame=0):
         shiny = Text("✨ SHINY ✨", justify="center", style="bold yellow")
         parts.append(shiny)
 
-    parts.append(Text(""))
-
     # ASCII art
     species_style = SPECIES_STYLES.get(buddy["species"], "white")
-    art_lines = render_ascii(buddy, frame=frame)
-    art_text = Text(justify="center")
+    if art_lines is None:
+        art_lines = render_ascii(buddy, frame=frame)
+    art_text = Text()
     for i, line in enumerate(art_lines):
         if i > 0:
             art_text.append("\n")
-        art_text.append(line, style=species_style)
+        pad = max(0, (38 - len(line)) // 2)
+        art_text.append(" " * pad + line, style=species_style)
     parts.append(art_text)
 
     parts.append(Text(""))
@@ -948,7 +979,7 @@ def render_buddy_card_rich(buddy, frame=0):
 
     # Personality
     p_text = buddy["personality"]
-    p_lines = textwrap.wrap(p_text, width=34)
+    p_lines = textwrap.wrap(p_text, width=30)
     personality = Text(style="italic dim")
     for i, wline in enumerate(p_lines):
         prefix = ' "' if i == 0 else "  "
@@ -974,16 +1005,13 @@ def render_buddy_card_rich(buddy, frame=0):
     # Weather
     weather = buddy.get("weather")
     if weather:
-        if "snow" in weather:
-            weather_icon, weather_style = "❄", "bold bright_cyan"
-        elif "rain" in weather:
-            weather_icon, weather_style = "☂", "bold blue"
-        else:
-            weather_icon, weather_style = "☀", "bold yellow"
+        wmo = buddy.get("weather_code", 0)
+        weather_icon, _label, weather_style = WMO_WEATHER.get(wmo, ("☀️", "", "bold yellow"))
         city = buddy.get("location_city", "boston")
         weather_text = Text(" ")
-        weather_text.append(weather_icon, style=weather_style)
-        weather_text.append(f" {city}: ", style="bold")
+        icon_clean = weather_icon.replace("\ufe0f", "")
+        weather_text.append(icon_clean, style=weather_style)
+        weather_text.append(f"  {city}: ", style="bold")
         weather_text.append(weather, style="italic")
         parts.append(weather_text)
 
@@ -994,14 +1022,15 @@ def render_buddy_card_rich(buddy, frame=0):
     stats_table.add_column("stat", min_width=10, style="dim")
     stats_table.add_column("bar", min_width=10)
     stats_table.add_column("val", justify="right", min_width=3)
-    for stat in STATS:
+    DISPLAY_STATS = ["curiosity", "snark"]
+    for stat in DISPLAY_STATS:
         val = buddy["stats"].get(stat, 0)
         filled = round(val / 10)
-        style = _stat_style(val)
+        color = STAT_COLORS.get(stat, "white")
         bar = Text()
-        bar.append("█" * filled, style=style)
+        bar.append("█" * filled, style=color)
         bar.append("░" * (10 - filled), style="bright_black")
-        stats_table.add_row(f" {stat}", bar, Text(str(val), style=style))
+        stats_table.add_row(f" {stat}", bar, Text(str(val), style=color))
     parts.append(stats_table)
 
     # Last reaction
@@ -1009,7 +1038,7 @@ def render_buddy_card_rich(buddy, frame=0):
         parts.append(Text(""))
         parts.append(Text(" last said:", style="dim"))
         reaction = buddy["last_reaction"]
-        r_lines = textwrap.wrap(reaction, width=35)
+        r_lines = textwrap.wrap(reaction, width=30)
         for rline in r_lines:
             parts.append(Text(f" {rline}", style="italic"))
 
@@ -1025,6 +1054,8 @@ def render_buddy_card_rich(buddy, frame=0):
 
 def show_card(buddy, console=None, frame=0):
     """Display the buddy card. Uses Rich if a Console is provided, plain text otherwise."""
+    if buddy.get("hide_card"):
+        return
     if console and HAS_RICH:
         console.print(render_buddy_card_rich(buddy, frame=frame))
     else:
@@ -1033,7 +1064,10 @@ def show_card(buddy, console=None, frame=0):
 
 def hatch(console=None):
     state = load_state()
-    if state and not state.get("muted"):
+    if state:
+        if state.get("muted"):
+            print(f"  {state['name']} is muted. /buddy on to bring them back.")
+            return
         migrate_state(state)
         apply_happiness_decay(state)
         save_state(state)
@@ -1055,7 +1089,7 @@ def hatch(console=None):
     print(f"  /buddy weather on to enable weather-based mood")
 
 
-def pet(console=None):
+def pet(console=None, compact=False):
     state = load_state()
     if not state:
         print("  no companion yet — run /buddy first")
@@ -1079,7 +1113,8 @@ def pet(console=None):
 
     if evolution_msg:
         print(evolution_msg)
-    show_card(state, console)
+    if not compact:
+        show_card(state, console)
     print(f"\n  {reaction}")
 
 
@@ -1238,7 +1273,7 @@ def react(context=""):
     print(f"  {name}: {reaction}")
 
 
-def feed(console=None):
+def feed(console=None, compact=False):
     state = load_state()
     if not state:
         print("  no companion yet — run /buddy first")
@@ -1260,12 +1295,13 @@ def feed(console=None):
 
     if evolution_msg:
         print(evolution_msg)
-    show_card(state, console)
+    if not compact:
+        show_card(state, console)
     print(f"\n  You gave {state['name']} {treat_name}!")
     print(f"  {treat_reaction}")
 
 
-def play(console=None):
+def play(console=None, compact=False):
     state = load_state()
     if not state:
         print("  no companion yet — run /buddy first")
@@ -1287,11 +1323,12 @@ def play(console=None):
 
     if evolution_msg:
         print(evolution_msg)
-    show_card(state, console)
+    if not compact:
+        show_card(state, console)
     print(f"\n  {scenario}")
 
 
-def teach(stat_name, console=None):
+def teach(stat_name, console=None, compact=False):
     state = load_state()
     if not state:
         print("  no companion yet — run /buddy first")
@@ -1333,7 +1370,8 @@ def teach(stat_name, console=None):
 
     if evolution_msg:
         print(evolution_msg)
-    show_card(state, console)
+    if not compact:
+        show_card(state, console)
     print(f"\n  {state['name']} studied {stat_name}! {old_val} -> {new_val} (+{boost})")
 
 
@@ -1388,17 +1426,44 @@ def weather_cmd(subcmd="", console=None):
             print(f"  /buddy weather on to enable (uses your IP to find your city).")
 
 
+def hidecard_cmd(subcmd=""):
+    """Handle /buddy hidecard [on|off]."""
+    state = load_state()
+    if not state:
+        print("  no companion yet — run /buddy first")
+        return
+
+    migrate_state(state)
+
+    if subcmd == "on":
+        state["hide_card"] = True
+        save_state(state)
+        print(f"  Card hidden — {state['name']} will only show reactions in Claude output.")
+        print(f"  Use buddy_watch.py for the full visual. /buddy hidecard off to restore.")
+    elif subcmd == "off":
+        state["hide_card"] = False
+        save_state(state)
+        print(f"  Card visible again in Claude output.")
+    else:
+        current = "ON (hidden)" if state.get("hide_card") else "OFF (visible)"
+        print(f"  hide_card is {current}.")
+        print(f"  /buddy hidecard on — suppress card in Claude output (use with buddy_watch)")
+        print(f"  /buddy hidecard off — show card in Claude output")
+
+
 def rehatch(console=None):
     """Release current buddy and hatch a new one."""
     state = load_state()
     old_name = state["name"] if state else None
 
-    # Preserve weather settings across rehatches
+    # Preserve settings across rehatches
     weather_enabled = state.get("weather_enabled", False) if state else False
     weather_url = state.get("weather_url") if state else None
     location_city = state.get("location_city") if state else None
+    hide_card = state.get("hide_card", False) if state else False
 
     buddy = generate_buddy()
+    buddy["hide_card"] = hide_card
     if weather_enabled and weather_url:
         buddy["weather_enabled"] = True
         buddy["weather_url"] = weather_url
@@ -1431,18 +1496,18 @@ def main():
     cmd = args[0] if args else ""
 
     if cmd == "pet":
-        pet(console)
+        pet(console, compact=quiet)
     elif cmd == "feed":
-        feed(console)
+        feed(console, compact=quiet)
     elif cmd == "play":
-        play(console)
+        play(console, compact=quiet)
     elif cmd == "teach":
         stat_name = args[1] if len(args) > 1 else ""
         if not stat_name:
             print(f"  usage: /buddy teach <stat>")
             print(f"  stats: {', '.join(STATS)}")
         else:
-            teach(stat_name, console)
+            teach(stat_name, console, compact=quiet)
     elif cmd == "off":
         mute()
     elif cmd == "on":
@@ -1453,6 +1518,9 @@ def main():
     elif cmd == "weather":
         subcmd = args[1] if len(args) > 1 else ""
         weather_cmd(subcmd, console)
+    elif cmd == "hidecard":
+        subcmd = args[1] if len(args) > 1 else ""
+        hidecard_cmd(subcmd)
     elif cmd == "status":
         status()
     elif cmd == "rehatch":
