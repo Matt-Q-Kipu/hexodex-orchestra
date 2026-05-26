@@ -968,7 +968,7 @@ def render_buddy_card_rich(buddy, frame=0, art_lines=None):
     for i, line in enumerate(art_lines):
         if i > 0:
             art_text.append("\n")
-        pad = max(0, (38 - len(line)) // 2)
+        pad = max(0, (38 - display_width(line)) // 2)
         art_text.append(" " * pad + line, style=species_style)
     parts.append(art_text)
 
